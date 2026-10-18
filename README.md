@@ -3,7 +3,6 @@
 **Project audited:** The Sunday Kitchen — Culinary Studio  
 **Language:** Python  
 **Web framework:** Flask  
-**Review date:** 18 October 2026
 
 This repository contains the application and review evidence prepared for CodeAlpha's **Task 3: Secure Coding Review**. The task asks the intern to select a programming language and application, review the code for security vulnerabilities using static-analysis tools and/or manual inspection, recommend secure-coding practices, and document findings with remediation steps.
 
