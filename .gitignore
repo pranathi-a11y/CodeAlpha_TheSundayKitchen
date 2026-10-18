@@ -8,5 +8,4 @@ venv/
 !.env.example
 instance/*.sqlite3
 instance/*.db
-reports/bandit-output.txt
 .DS_Store
