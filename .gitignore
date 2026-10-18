@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+instance/*.sqlite3
+instance/*.db
+reports/bandit-output.txt
+.DS_Store
