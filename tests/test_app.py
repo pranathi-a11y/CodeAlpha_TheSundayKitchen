@@ -8,6 +8,7 @@ without a valid token is rejected (HTTP 400).
 Run:
     python -m pytest tests/test_app.py -v
 """
+import re
 import sqlite3
 import pytest
 import app as project
@@ -47,6 +48,13 @@ def count_rows(path):
         return db.execute("SELECT COUNT(*) FROM enquiries").fetchone()[0]
 
 
+def csrf_token(response):
+    """Extract the form token rendered by Flask-WTF for an integration test."""
+    match = re.search(rb'name="csrf_token" value="([^"]+)"', response.data)
+    assert match, "CSRF token was not rendered"
+    return match.group(1).decode("utf-8")
+
+
 # ---------------------------------------------------------------------------
 # Basic page-load tests
 # ---------------------------------------------------------------------------
@@ -56,6 +64,35 @@ def test_primary_pages_load(client):
     for path in ["/", "/workshops", "/courses", "/studio", "/journal", "/contact"]:
         assert client.get(path).status_code == 200, path
     assert b"A little more" in client.get("/").data
+
+
+def test_local_workshop_and_instructor_images_load(client):
+    """Workshop and supplied instructor portraits are served from local static paths."""
+    paths = [
+        "/static/images/workshops/handmade-pasta.jpg",
+        "/static/images/workshops/sourdough-sunday.jpg",
+        "/static/images/workshops/little-patisserie.jpg",
+        "/static/images/workshops/regional-indian-table.jpg",
+        "/static/images/workshops/seasonal-market-cooking.jpg",
+        "/static/images/instructors/pranathi.jpg",
+        "/static/images/instructors/prakruti.jpg",
+        "/static/images/instructors/amrutha-upright.jpg",
+    ]
+    for path in paths:
+        response = client.get(path)
+        assert response.status_code == 200, path
+        assert response.mimetype == "image/jpeg"
+
+
+def test_studio_has_instructors_in_requested_display_order(client):
+    response = client.get("/studio")
+    page = response.get_data(as_text=True)
+    names = ["Pranathi Chaliseemala", "Prakruti B", "Amrutha Gowda"]
+    assert all(name in page for name in names)
+    assert [page.index(name) for name in names] == sorted(page.index(name) for name in names)
+    assert "Meera Rao" not in page
+    assert "Ananya Iyer" not in page
+    assert "Kavya Nair" not in page
 
 
 def test_details_and_unknown_slugs(client):
@@ -184,6 +221,29 @@ def test_contact_persists_valid_note(app, client):
         follow_redirects=True,
     )
     assert response.status_code == 200
+    assert b"Sent!" in response.data
+    assert b"Thank you for reaching out. Your message has been received." in response.data
+    assert b"data-contact-success" in response.data
+    assert count_rows(app.config["DATABASE"]) == 1
+
+
+def test_contact_success_modal_follows_a_valid_csrf_protected_submission(app, client):
+    """The success modal is rendered only after a valid, protected save succeeds."""
+    app.config["WTF_CSRF_ENABLED"] = True
+    token = csrf_token(client.get("/contact"))
+    response = client.post(
+        "/contact",
+        data={
+            "csrf_token": token,
+            "name": "Asha Rao",
+            "email": "asha@example.com",
+            "topic": "Course enquiry",
+            "message": "Could you share the syllabus?",
+        },
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert b"data-contact-success" in response.data
     assert count_rows(app.config["DATABASE"]) == 1
 
 
@@ -195,6 +255,7 @@ def test_bad_email_does_not_persist(app, client):
               "topic": "", "message": "Hello"},
     )
     assert response.status_code == 400
+    assert b"data-contact-success" not in response.data
     assert count_rows(app.config["DATABASE"]) == 0
 
 
@@ -206,6 +267,7 @@ def test_contact_rejects_empty_message(app, client):
               "topic": "", "message": ""},
     )
     assert response.status_code == 400
+    assert b"data-contact-success" not in response.data
     assert count_rows(app.config["DATABASE"]) == 0
 
 
@@ -241,6 +303,26 @@ def test_contact_rejects_control_characters_in_name(app, client):
               "topic": "", "message": "Hello"},
     )
     assert response.status_code == 400
+    assert count_rows(app.config["DATABASE"]) == 0
+
+
+def test_contact_database_failure_is_controlled_and_never_shows_success(app, client, monkeypatch):
+    """A SQLite write failure returns a generic error without a false acknowledgement."""
+    class FailingDatabase:
+        def execute(self, *_args, **_kwargs):
+            raise sqlite3.OperationalError("database is locked")
+
+        def rollback(self):
+            return None
+
+    monkeypatch.setattr(project, "get_db", lambda: FailingDatabase())
+    response = client.post(
+        "/contact",
+        data={"name": "Asha Rao", "email": "asha@example.com", "topic": "", "message": "Hello"},
+    )
+    assert response.status_code == 500
+    assert b"We couldn&#39;t save your message" in response.data
+    assert b"data-contact-success" not in response.data
     assert count_rows(app.config["DATABASE"]) == 0
 
 
@@ -283,6 +365,7 @@ def test_csrf_rejects_post_without_token(app, client):
               "topic": "", "message": "Hello"},
     )
     assert response.status_code == 400
+    assert b"data-contact-success" not in response.data
 
 
 def test_csrf_rejects_enquire_without_token(app, client):

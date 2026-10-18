@@ -6,7 +6,7 @@ import sqlite3
 from pathlib import Path
 from flask import Flask, abort, current_app, flash, g, redirect, render_template, request, url_for
 from flask_wtf.csrf import CSRFProtect
-from catalog import COURSES, JOURNAL, WORKSHOPS
+from catalog import COURSES, INSTRUCTORS, JOURNAL, WORKSHOPS
 
 app = Flask(__name__, instance_relative_config=True)
 is_production = os.environ.get("APP_ENV", "development").strip().lower() == "production"
@@ -124,7 +124,7 @@ def course_detail(slug):
 
 @app.get("/studio")
 def studio():
-    return render_template("studio.html", workshops=WORKSHOPS)
+    return render_template("studio.html", instructors=INSTRUCTORS)
 
 
 @app.get("/journal")
@@ -145,9 +145,21 @@ def contact():
             errors["topic"] = "Topic must be 120 characters or fewer."
         if errors:
             return render_template("contact.html", values=values, errors=errors), 400
-        get_db().execute("INSERT INTO enquiries (name,email,enquiry_type,topic,message) VALUES (?,?,?,?,?)", (values["name"], values["email"], "contact", values["topic"] or None, values["message"]))
-        get_db().commit()
-        flash("Your enquiry was saved in the local demo. No email was sent.", "success")
+        try:
+            db = get_db()
+            db.execute(
+                "INSERT INTO enquiries (name,email,enquiry_type,topic,message) VALUES (?,?,?,?,?)",
+                (values["name"], values["email"], "contact", values["topic"] or None, values["message"]),
+            )
+            db.commit()
+        except sqlite3.Error:
+            current_app.logger.exception("Unable to save contact enquiry")
+            db = g.get("db")
+            if db is not None:
+                db.rollback()
+            errors["form"] = "We couldn't save your message. Please try again shortly."
+            return render_template("contact.html", values=values, errors=errors), 500
+        flash("contact_saved", "contact_success")
         return redirect(url_for("contact"))
     return render_template("contact.html", values=values, errors=errors)
 

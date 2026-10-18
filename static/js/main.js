@@ -15,4 +15,15 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("form").forEach((form) => form.addEventListener("submit", (event) => {
     if (!form.checkValidity()) { event.preventDefault(); form.reportValidity(); }
   }));
+
+  const successDialog = document.querySelector("[data-contact-success]");
+  if (successDialog) {
+    if (typeof successDialog.showModal === "function") {
+      successDialog.showModal();
+    } else {
+      successDialog.setAttribute("open", "");
+    }
+    const closeButton = successDialog.querySelector("[data-success-close]");
+    if (closeButton) closeButton.focus();
+  }
 });
